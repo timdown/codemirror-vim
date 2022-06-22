@@ -1,5 +1,5 @@
 // CodeMirror, copyright (c) by Marijn Haverbeke and others
-// Distributed under an MIT license: https://codemirror.net/LICENSE
+// Distributed under an MIT license: https://codemirror.net/5/LICENSE
 
 /**
  * Supported keybindings:
@@ -34,7 +34,15 @@
  *  9. Ex command implementations.
  */
 
-export function initVim(CodeMirror) {
+(function(mod) {
+  if (typeof exports == "object" && typeof module == "object") // CommonJS
+    mod(require("../lib/codemirror"), require("../addon/search/searchcursor"), require("../addon/dialog/dialog"), require("../addon/edit/matchbrackets.js"));
+  else if (typeof define == "function" && define.amd) // AMD
+    define(["../lib/codemirror", "../addon/search/searchcursor", "../addon/dialog/dialog", "../addon/edit/matchbrackets"], mod);
+  else // Plain browser env
+    mod(CodeMirror);
+})(function(CodeMirror) {
+  'use strict';
 
   var Pos = CodeMirror.Pos;
 
@@ -64,6 +72,8 @@ export function initVim(CodeMirror) {
     { keys: '<Right>', type: 'keyToKey', toKeys: 'l' },
     { keys: '<Up>', type: 'keyToKey', toKeys: 'k' },
     { keys: '<Down>', type: 'keyToKey', toKeys: 'j' },
+    { keys: 'g<Up>', type: 'keyToKey', toKeys: 'gk' },
+    { keys: 'g<Down>', type: 'keyToKey', toKeys: 'gj' },
     { keys: '<Space>', type: 'keyToKey', toKeys: 'l' },
     { keys: '<BS>', type: 'keyToKey', toKeys: 'h', context: 'normal'},
     { keys: '<Del>', type: 'keyToKey', toKeys: 'x', context: 'normal'},
@@ -77,8 +87,6 @@ export function initVim(CodeMirror) {
     { keys: '<C-c>', type: 'keyToKey', toKeys: '<Esc>' },
     { keys: '<C-[>', type: 'keyToKey', toKeys: '<Esc>', context: 'insert' },
     { keys: '<C-c>', type: 'keyToKey', toKeys: '<Esc>', context: 'insert' },
-    { keys: '<C-Esc>', type: 'keyToKey', toKeys: '<Esc>' }, // ipad keyboard sends C-Esc instead of C-[
-    { keys: '<C-Esc>', type: 'keyToKey', toKeys: '<Esc>', context: 'insert' },
     { keys: 's', type: 'keyToKey', toKeys: 'cl', context: 'normal' },
     { keys: 's', type: 'keyToKey', toKeys: 'c', context: 'visual'},
     { keys: 'S', type: 'keyToKey', toKeys: 'cc', context: 'normal' },
@@ -118,6 +126,9 @@ export function initVim(CodeMirror) {
     { keys: '<C-u>', type: 'motion', motion: 'moveByScroll', motionArgs: { forward: false, explicitRepeat: true }},
     { keys: 'gg', type: 'motion', motion: 'moveToLineOrEdgeOfDocument', motionArgs: { forward: false, explicitRepeat: true, linewise: true, toJumplist: true }},
     { keys: 'G', type: 'motion', motion: 'moveToLineOrEdgeOfDocument', motionArgs: { forward: true, explicitRepeat: true, linewise: true, toJumplist: true }},
+    {keys: "g$", type: "motion", motion: "moveToEndOfDisplayLine"},
+    {keys: "g^", type: "motion", motion: "moveToStartOfDisplayLine"},
+    {keys: "g0", type: "motion", motion: "moveToStartOfDisplayLine"},
     { keys: '0', type: 'motion', motion: 'moveToStartOfLine' },
     { keys: '^', type: 'motion', motion: 'moveToFirstNonWhiteSpaceCharacter' },
     { keys: '+', type: 'motion', motion: 'moveByLines', motionArgs: { forward: true, toFirstChar:true }},
@@ -265,6 +276,7 @@ export function initVim(CodeMirror) {
     { name: 'global', shortName: 'g' }
   ];
 
+  var Vim = function() {
     function enterVimMode(cm) {
       cm.setOption('disableInput', true);
       cm.setOption('showCursorWhenSelecting', false);
@@ -630,8 +642,8 @@ export function initVim(CodeMirror) {
           register.clear();
           this.latestRegister = registerName;
           if (cm.openDialog) {
-            var template = dom('span', {class: 'cm-vim-message'}, 'recording @' + registerName);
-            this.onRecordingDone = cm.openDialog(template, null, {bottom:true});
+            this.onRecordingDone = cm.openDialog(
+                document.createTextNode('(recording)['+registerName+']'), null, {bottom:true});
           }
           this.isRecording = true;
         }
@@ -704,8 +716,7 @@ export function initVim(CodeMirror) {
     }
 
     var lastInsertModeKeyTimer;
-    var vimApi = {
-      enterVimMode: enterVimMode,
+    var vimApi= {
       buildKeyMap: function() {
         // TODO: Convert keymap into dictionary format for fast lookup.
       },
@@ -827,8 +838,6 @@ export function initVim(CodeMirror) {
           return command();
         }
       },
-      multiSelectHandleKey: multiSelectHandleKey,
-
       /**
        * This is the outermost function called by CodeMirror, after keys have
        * been mapped to their Vim equivalents.
@@ -856,13 +865,17 @@ export function initVim(CodeMirror) {
         }
         function handleEsc() {
           if (key == '<Esc>') {
-            // Clear input state and get back to normal mode.
-            clearInputState(cm);
             if (vim.visualMode) {
+              // Get back to normal mode.
               exitVisualMode(cm);
             } else if (vim.insertMode) {
+              // Get back to normal mode.
               exitInsertMode(cm);
+            } else {
+              // We're already in normal mode. Let '<Esc>' be handled normally.
+              return;
             }
+            clearInputState(cm);
             return true;
           }
         }
@@ -930,10 +943,9 @@ export function initVim(CodeMirror) {
           var match = commandDispatcher.matchCommand(mainKey, defaultKeymap, vim.inputState, context);
           if (match.type == 'none') { clearInputState(cm); return false; }
           else if (match.type == 'partial') { return true; }
-          else if (match.type == 'clear') { clearInputState(cm); return true; } // ace_patch
 
           vim.inputState.keyBuffer = '';
-          keysMatcher = /^(\d*)(.*)$/.exec(keys);
+          var keysMatcher = /^(\d*)(.*)$/.exec(keys);
           if (keysMatcher[1] && keysMatcher[1] != '0') {
             vim.inputState.pushRepeatDigit(keysMatcher[1]);
           }
@@ -1235,7 +1247,7 @@ export function initVim(CodeMirror) {
         }
         if (bestMatch.keys.slice(-11) == '<character>') {
           var character = lastChar(keys);
-          if (!character || character.length > 1) return {type: 'clear'};
+          if (!character) return {type: 'none'};
           inputState.selectedCharacter = character;
         }
         return {type: 'full', command: bestMatch};
@@ -1479,7 +1491,6 @@ export function initVim(CodeMirror) {
           vimGlobalState.exCommandHistoryController.pushInput(input);
           vimGlobalState.exCommandHistoryController.reset();
           exCommandDispatcher.processCommand(cm, input);
-          clearInputState(cm);
         }
         function onPromptKeyDown(e, input, close) {
           var keyName = CodeMirror.keyName(e), up, offset;
@@ -2000,7 +2011,7 @@ export function initVim(CodeMirror) {
         }
         var orig = cm.charCoords(head, 'local');
         motionArgs.repeat = repeat;
-        curEnd = motions.moveByDisplayLines(cm, head, motionArgs, vim);
+        var curEnd = motions.moveByDisplayLines(cm, head, motionArgs, vim);
         if (!curEnd) {
           return null;
         }
@@ -2084,6 +2095,16 @@ export function initVim(CodeMirror) {
         }
         return new Pos(lineNum,
                    findFirstNonWhiteSpaceCharacter(cm.getLine(lineNum)));
+      },
+      moveToStartOfDisplayLine: function(cm) {
+        cm.execCommand("goLineLeft");
+        return cm.getCursor();
+      },
+      moveToEndOfDisplayLine: function(cm) {
+        cm.execCommand("goLineRight");
+        var head = cm.getCursor();
+        if (head.sticky == "before") head.ch--;
+        return head;
       },
       textObjectManipulation: function(cm, head, motionArgs, vim) {
         // TODO: lots of possible exceptions that can be thrown here. Try da(
@@ -2267,30 +2288,22 @@ export function initVim(CodeMirror) {
       },
       indent: function(cm, args, ranges) {
         var vim = cm.state.vim;
-        if (cm.indentMore) {
-          var repeat = (vim.visualMode) ? args.repeat : 1;
+        var startLine = ranges[0].anchor.line;
+        var endLine = vim.visualBlock ?
+          ranges[ranges.length - 1].anchor.line :
+          ranges[0].head.line;
+        // In visual mode, n> shifts the selection right n times, instead of
+        // shifting n lines right once.
+        var repeat = (vim.visualMode) ? args.repeat : 1;
+        if (args.linewise) {
+          // The only way to delete a newline is to delete until the start of
+          // the next line, so in linewise mode evalInput will include the next
+          // line. We don't want this in indent, so we go back a line.
+          endLine--;
+        }
+        for (var i = startLine; i <= endLine; i++) {
           for (var j = 0; j < repeat; j++) {
-            if (args.indentRight) cm.indentMore();
-            else cm.indentLess();
-          }
-        } else {
-          var startLine = ranges[0].anchor.line;
-          var endLine = vim.visualBlock ?
-            ranges[ranges.length - 1].anchor.line :
-            ranges[0].head.line;
-          // In visual mode, n> shifts the selection right n times, instead of
-          // shifting n lines right once.
-          var repeat = (vim.visualMode) ? args.repeat : 1;
-          if (args.linewise) {
-            // The only way to delete a newline is to delete until the start of
-            // the next line, so in linewise mode evalInput will include the next
-            // line. We don't want this in indent, so we go back a line.
-            endLine--;
-          }
-          for (var i = startLine; i <= endLine; i++) {
-            for (var j = 0; j < repeat; j++) {
-              cm.indentLine(i, args.indentRight);
-            }
+            cm.indentLine(i, args.indentRight);
           }
         }
         return motions.moveToFirstNonWhiteSpaceCharacter(cm, ranges[0].anchor);
@@ -4319,7 +4332,7 @@ export function initVim(CodeMirror) {
     }
 
     function showConfirm(cm, template) {
-      var pre = dom('div', {$color: 'red', $whiteSpace: 'pre', class: 'cm-vim-message'}, template);
+      var pre = dom('pre', {$color: 'red', class: 'cm-vim-message'}, template);
       if (cm.openNotification) {
         cm.openNotification(pre, {bottom: true, duration: 5000});
       } else {
@@ -4341,10 +4354,7 @@ export function initVim(CodeMirror) {
       if (cm.openDialog) {
         cm.openDialog(template, options.onClose, {
           onKeyDown: options.onKeyDown, onKeyUp: options.onKeyUp,
-          bottom: true, selectValueOnOpen: false, value: options.value,
-          onClose: function() {
-            cm.state.vim && clearInputState(cm);
-          }
+          bottom: true, selectValueOnOpen: false, value: options.value
         });
       }
       else {
@@ -5723,75 +5733,9 @@ export function initVim(CodeMirror) {
       }
     }
 
-    // multiselect support
-    function cloneVimState(state) {
-      var n = new state.constructor();
-      Object.keys(state).forEach(function(key) {
-        var o = state[key];
-        if (Array.isArray(o))
-          o = o.slice();
-        else if (o && typeof o == "object" && o.constructor != Object)
-          o = cloneVimState(o);
-        n[key] = o;
-      });
-      if (state.sel) {
-        n.sel = {
-          head: state.sel.head && copyCursor(state.sel.head),
-          anchor: state.sel.anchor && copyCursor(state.sel.anchor)
-        };
-      }
-      return n;
-    }
-    function multiSelectHandleKey(cm, key, origin) {
-      var isHandled = false;
-      var vim = vimApi.maybeInitVimState_(cm);
-      var visualBlock = vim.visualBlock || vim.wasInVisualBlock;
-  
-      var wasMultiselect = cm.isInMultiSelectMode();
-      if (vim.wasInVisualBlock && !wasMultiselect) {
-        vim.wasInVisualBlock = false;
-      } else if (wasMultiselect && vim.visualBlock) {
-         vim.wasInVisualBlock = true;
-      }
-  
-      if (key == '<Esc>' && !vim.insertMode && !vim.visualMode && wasMultiselect && vim.status == "<Esc>") {
-        // allow editor to exit multiselect
-        clearInputState(cm);
-      } else if (visualBlock || !wasMultiselect || cm.inVirtualSelectionMode) {
-        isHandled = vimApi.handleKey(cm, key, origin);
-      } else {
-        var old = cloneVimState(vim);
-        
-        cm.operation(function() {
-          cm.curOp.isVimOp = true;
-          cm.forEachSelection(function() {
-            var head = cm.getCursor("head");
-            var anchor = cm.getCursor("anchor");
-            var headOffset = !cursorIsBefore(head, anchor) ? -1 : 0;
-            var anchorOffset = cursorIsBefore(head, anchor) ? -1 : 0;
-            head = offsetCursor(head, 0, headOffset);
-            anchor = offsetCursor(anchor, 0, anchorOffset);
-            cm.state.vim.sel.head = head;
-            cm.state.vim.sel.anchor = anchor;
-
-            isHandled = vimApi.handleKey(cm, key, origin);
-            if (cm.virtualSelection) {
-              cm.state.vim = cloneVimState(old);
-            }
-          });
-          if (cm.curOp.cursorActivity && !isHandled)
-            cm.curOp.cursorActivity = false;
-          cm.state.vim = vim
-        }, true);
-      }
-      // some commands may bring visualMode and selection out of sync
-      if (isHandled && !vim.visualMode && !vim.insert && vim.visualMode != cm.somethingSelected()) {
-        handleExternalSelection(cm, vim, true);
-      }
-      return isHandled;
-    }
     resetVimGlobalState();
-
+    return vimApi;
+  };
   // Initialize Vim and make it available as an API.
-  return vimApi;
-};
+  CodeMirror.Vim = Vim();
+});
