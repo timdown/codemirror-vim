@@ -79,14 +79,20 @@ const vimPlugin = ViewPlugin.fromClass(class implements PluginValue {
     this.dom.style.cssText = "position: absolute; right: 10px; top: 1px";
 
     // Add a capturing event handler to ensure CodeMirror hasn't had a chance to prevent the default behaviour
-    this.keydownHandler = this.handleKeydownEvent.bind(this)
-    view.contentDOM.addEventListener('keydown', this.keydownHandler, { capture: true })
+    // this.keydownHandler = this.handleKeydownEvent.bind(this)
+    this.keydownHandler = (e: KeyboardEvent) => {
+      if (e.target === view.contentDOM) {
+        this.handleKeydownEvent(e)
+      }
+    }
+
+    view.contentDOM.ownerDocument.addEventListener('keydown', this.keydownHandler, { capture: true })
   }
 
   handleKeydownEvent(e: KeyboardEvent) {
     const key = CodeMirror.vimKey(e)
     const cm = this.cm
-    console.log(`handleKeydownEvent keydown event ${e.key} (Vim key: ${key})`)
+    console.log(`handleKeydownEvent keydown event ${e.key} (Vim key: ${key}). Event phase: ${e.eventPhase}`)
     this.handledLatestKeydownEvent = false
     if (!key) return
 
@@ -186,7 +192,7 @@ const vimPlugin = ViewPlugin.fromClass(class implements PluginValue {
     this.updateClass()
     this.blockCursor.destroy();
     delete (this.view as any).cm;
-    this.view.contentDOM.removeEventListener('keydown', this.keydownHandler, { capture: true })
+    this.view.contentDOM.ownerDocument.removeEventListener('keydown', this.keydownHandler, { capture: true })
     this.keydownHandler = () => {}
   }
 
@@ -213,7 +219,7 @@ const vimPlugin = ViewPlugin.fromClass(class implements PluginValue {
     keydown: function(e) {
       // The plugin has already had the chance to handle the event in the
       // capture phase. If it's handled it, it says so now
-      console.log(`keydown bubbling phase ${e.key}. handledLatestKeydownEvent: ${this.handledLatestKeydownEvent}`)
+      console.log(`keydown bubbling phase ${e.key}. handledLatestKeydownEvent: ${this.handledLatestKeydownEvent}. Event phase: ${e.eventPhase}`)
       return this.handledLatestKeydownEvent
     }
   },
