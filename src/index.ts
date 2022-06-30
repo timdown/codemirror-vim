@@ -86,6 +86,7 @@ const vimPlugin = ViewPlugin.fromClass(class implements PluginValue {
   handleKeydownEvent(e: KeyboardEvent) {
     const key = CodeMirror.vimKey(e)
     const cm = this.cm
+    console.log(`handleKeydownEvent keydown event ${e.key} (Vim key: ${key})`)
     this.handledLatestKeydownEvent = false
     if (!key) return
 
@@ -114,6 +115,7 @@ const vimPlugin = ViewPlugin.fromClass(class implements PluginValue {
     if (result) {
       e.preventDefault()
       e.stopPropagation()
+      console.log(`Attempting to suppress keydown event ${e.key}`)
       this.blockCursor.scheduleRedraw();
     }
 
@@ -208,9 +210,10 @@ const vimPlugin = ViewPlugin.fromClass(class implements PluginValue {
 
 }, {
   eventHandlers: {
-    keydown: function() {
+    keydown: function(e) {
       // The plugin has already had the chance to handle the event in the
       // capture phase. If it's handled it, it says so now
+      console.log(`keydown bubbling phase ${e.key}. handledLatestKeydownEvent: ${this.handledLatestKeydownEvent}`)
       return this.handledLatestKeydownEvent
     }
   },
