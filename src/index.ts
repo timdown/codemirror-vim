@@ -31,7 +31,6 @@ type EditorViewExtended = EditorView&{cm:CodeMirror}
 
 const vimPlugin = ViewPlugin.fromClass(class implements PluginValue {
   private dom: HTMLElement;
-  private keydownHandler;
   public view: EditorViewExtended;
   public cm: CodeMirror;
   public status = ""
@@ -52,7 +51,6 @@ const vimPlugin = ViewPlugin.fromClass(class implements PluginValue {
       this.blockCursor.scheduleRedraw();
       this.updateStatus()
     });
-
     this.cm.on('vim-mode-change', (e: any) => {
       cm.state.vim.mode = e.mode;
       if (e.subMode) {
@@ -63,6 +61,7 @@ const vimPlugin = ViewPlugin.fromClass(class implements PluginValue {
       this.updateClass()
       this.updateStatus()
     });
+
 
     this.cm.on("dialog", () => {
       if (this.cm.state.statusbar) {
@@ -76,52 +75,6 @@ const vimPlugin = ViewPlugin.fromClass(class implements PluginValue {
 
     this.dom = document.createElement("span");
     this.dom.style.cssText = "position: absolute; right: 10px; top: 1px";
-
-    // Add a capturing event handler to ensure CodeMirror hasn't had a chance to prevent the default behaviour
-    this.keydownHandler = (e: KeyboardEvent) => {
-      if (e.target === view.contentDOM) {
-        this.handleKeydownEvent(e)
-      }
-    }
-
-    // The event handler needs to be attached to the document in order to catch it in the capturing phase
-    view.contentDOM.ownerDocument.addEventListener('keydown', this.keydownHandler, { capture: true })
-  }
-
-  handleKeydownEvent(e: KeyboardEvent) {
-    const key = CodeMirror.vimKey(e)
-    const cm = this.cm
-    if (!key) return
-
-    // clear search highlight
-    let vim = cm.state.vim
-    if (key == "<Esc>"
-        && !vim.insertMode && !vim.visualMode
-        && this.query/* && !cm.inMultiSelectMode*/
-    ) {
-      cm.removeOverlay(null);
-    }
-
-    cm.state.vim.status = (cm.state.vim.status|| "") + key
-    let result = Vim.multiSelectHandleKey(cm, key, "user");
-
-    // insert mode
-    if (!result && cm.state.vim.insertMode && cm.state.overwrite) {
-      if (e.key && e.key.length == 1 && !/\n/.test(e.key)) {
-        result = true;
-        cm.overWriteSelection(e.key)
-      } else if (e.key == "Backspace") {
-        result = true;
-        CodeMirror.commands.cursorCharLeft(cm)
-      }
-    }
-    if (result) {
-      e.preventDefault()
-      e.stopPropagation()
-      this.blockCursor.scheduleRedraw();
-    }
-
-    this.updateStatus()
   }
 
   update(update: ViewUpdate) {
@@ -187,8 +140,6 @@ const vimPlugin = ViewPlugin.fromClass(class implements PluginValue {
     this.updateClass()
     this.blockCursor.destroy();
     delete (this.view as any).cm;
-    this.view.contentDOM.ownerDocument.removeEventListener('keydown', this.keydownHandler, { capture: true })
-    this.keydownHandler = () => {}
   }
 
   highlight(query: any) {
@@ -210,6 +161,46 @@ const vimPlugin = ViewPlugin.fromClass(class implements PluginValue {
   decorations = Decoration.none
 
 }, {
+  eventHandlers: {
+    keydown: function(e: KeyboardEvent, view: EditorView) {
+      const key = CodeMirror.vimKey(e)
+      const cm = this.cm
+      if (!key) return
+
+      // clear search highlight
+      let vim = cm.state.vim
+      if (key == "<Esc>"
+       && !vim.insertMode && !vim.visualMode
+       && this.query/* && !cm.inMultiSelectMode*/
+      ) {
+        cm.removeOverlay(null);
+      }
+
+      cm.state.vim.status = (cm.state.vim.status|| "") + key
+      let result = Vim.multiSelectHandleKey(cm, key, "user");
+
+      // insert mode
+      if (!result && cm.state.vim.insertMode && cm.state.overwrite) {
+        if (e.key && e.key.length == 1 && !/\n/.test(e.key)) {
+          result = true;
+          cm.overWriteSelection(e.key)
+        } else if (e.key == "Backspace") {
+          result = true;
+          CodeMirror.commands.cursorCharLeft(cm)
+        }
+      }
+      if (result) {
+        e.preventDefault()
+        e.stopPropagation()
+        this.blockCursor.scheduleRedraw();
+      }
+
+      this.updateStatus()
+
+      return !!result;
+    }
+  },
+
   decorations: v => v.decorations
 })
 
